@@ -32,6 +32,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         json_payload = self.rfile.read(header_length)
         env = dict(os.environ)
         json_params = {}
+        
         if len(json_payload) > 0:
             json_params = json.loads(json_payload)
             env.update(('REPOSITORY_' + var.upper(), str(val))
@@ -95,6 +96,20 @@ def get_parser():
                         default=8555,
                         metavar="PORT",
                         help="port where it listens")
+    parser.add_argument("--event","-e",
+                        dest="event",
+                        default="Pipeline Hook",
+                        help="the name of the hook event")
+    parser.add_argument("--job-name","-j",
+                        dest="job",
+                        default="staging",
+                        help="the job name listed in the builds-section")
+    parser.add_argument("--on-success","-s",
+                        dest="on_success",
+                        action="store_true",
+                        default=True,
+                        help="the job name listed in the builds-section")
+    
     return parser
 
 

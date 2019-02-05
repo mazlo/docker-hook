@@ -39,24 +39,28 @@ class RequestHandler(BaseHTTPRequestHandler):
             #           for var, val in json_params['repository'].items())
 
         # TODO ZL add destinction for ci-engines. this here is specific
+        # request header X-Gitlab-Event must be given
         if not self.headers.getheader( 'X-Gitlab-Event', None ):
             logging.error( "Missing event type X-Gitlab-Event" )
             self.send_response( 500, "FAIL" )
             self.end_headers()
             return
 
+        # request header value for X-Gitlab-Event must be the one we need, --event
         if not args.event == self.headers.getheader( 'X-Gitlab-Event', None ):
            logging.error( "Wrong event type given, %s" % json_params['X-Gitlab-Event'] )
            self.send_response( 500, "FAIL" )
            self.end_headers()
            return
 
+        # builds: [] must be given in the payload
         if not 'builds' in json_params:
             logging.error( "No 'builds' property in json payload" )
             self.send_response( 500, "FAIL" )
             self.end_headers()
             return
 
+        # filter for requested job name, cli arg --job-name
         jobs = json_params['builds']
         jobs = filter( lambda job: 'name' in job and job['name'] == args.job, jobs )
         if len( jobs ) == 0:
@@ -71,6 +75,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             logging.info( "Authorized" )
             
             job = jobs[0]
+            # there must be a status: "..." field in the job
             if not job or not 'status' in job:
                 logging.error( "Could not find status in job, %s" % args.job )
                 self.send_response( 500, "FAIL" )
@@ -154,7 +159,7 @@ def get_parser():
                         dest="on_success",
                         action="store_true",
                         default=True,
-                        help="the job name listed in the builds-section")
+                        help="when to trigger the command --cmd")
     
     return parser
 

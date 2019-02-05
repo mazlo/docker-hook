@@ -32,39 +32,91 @@ class RequestHandler(BaseHTTPRequestHandler):
         json_payload = self.rfile.read(header_length)
         env = dict(os.environ)
         json_params = {}
+        
         if len(json_payload) > 0:
             json_params = json.loads(json_payload)
-            env.update(('REPOSITORY_' + var.upper(), str(val))
-                       for var, val in json_params['repository'].items())
+            #env.update(('REPOSITORY_' + var.upper(), str(val))
+            #           for var, val in json_params['repository'].items())
+
+        # TODO ZL add destinction for ci-engines. this here is specific
+        # request header X-Gitlab-Event must be given
+        if not self.headers.getheader( 'X-Gitlab-Event', None ):
+            logging.error( "Missing event type X-Gitlab-Event" )
+            self.send_response( 500, "FAIL" )
+            self.end_headers()
+            return
+
+        # request header value for X-Gitlab-Event must be the one we need, --event
+        if not args.event == self.headers.getheader( 'X-Gitlab-Event', None ):
+           logging.error( "Wrong event type given, %s" % json_params['X-Gitlab-Event'] )
+           self.send_response( 500, "FAIL" )
+           self.end_headers()
+           return
+
+        # builds: [] must be given in the payload
+        if not 'builds' in json_params:
+            logging.error( "No 'builds' property in json payload" )
+            self.send_response( 500, "FAIL" )
+            self.end_headers()
+            return
+
+        # filter for requested job name, cli arg --job-name
+        jobs = json_params['builds']
+        jobs = filter( lambda job: 'name' in job and job['name'] == args.job, jobs )
+        if len( jobs ) == 0:
+            logging.error( "Could not find requested job, %s" % args.job )
+            self.send_response( 500, "FAIL" )
+            self.end_headers()
+            return
 
         # Check if the secret URL was called
         token = args.token or os.environ.get("DOCKER_AUTH_TOKEN")
         if token == self.path[1:]:
-            logging.info("Start executing '%s'" % args.cmd)
-            try:
-                Popen(args.cmd, env=env).wait()
-                self.send_response(200, "OK")
-                if 'callback_url' in json_params:
-                    # Make a callback to Docker Hub
-                    data = {'state': 'success'}
-                    headers = {'Content-type': 'application/json',
-                               'Accept': 'text/plain'}
-                    requests.post(json_params['callback_url'],
-                                  data=json.dumps(data),
-                                  headers=headers)
-            except OSError as err:
-                self.send_response(500, "OSError")
-                logging.error("You probably didn't use 'sh ./script.sh'.")
-                logging.error(err)
-                if 'callback_url' in json_params:
-                    # Make a callback to Docker Hub
-                    data = {'state': 'failure',
-                            'description': str(err)}
-                    headers = {'Content-type': 'application/json',
-                               'Accept': 'text/plain'}
-                    requests.post(json_params['callback_url'],
-                                  data=json.dumps(data),
-                                  headers=headers)
+            logging.info( "Authorized" )
+            
+            job = jobs[0]
+            # there must be a status: "..." field in the job
+            if not job or not 'status' in job:
+                logging.error( "Could not find status in job, %s" % args.job )
+                self.send_response( 500, "FAIL" )
+                self.end_headers()
+                return
+            else:
+                logging.info( "Checking conditions" )
+                
+                if args.on_success and job['status'] != "success":
+                    logging.warn( "'status: %s' received for job 'name: %s'. Waiting for 'status: success'" % ( job['status'], args.job ) )
+                    self.send_response( 200, "OK" )
+                    self.end_headers()
+                    return
+
+                elif args.on_success and job['status'] == "success":
+                    logging.info("Start executing '%s'" % args.cmd)
+                    try:
+                        Popen(args.cmd, env=env).wait()
+                        self.send_response(200, "OK")
+                        if 'callback_url' in json_params:
+                            # Make a callback to Docker Hub
+                            data = {'state': 'success'}
+                            headers = {'Content-type': 'application/json',
+                                       'Accept': 'text/plain'}
+                            requests.post(json_params['callback_url'],
+                                          data=json.dumps(data),
+                                          headers=headers)
+                    except OSError as err:
+                        self.send_response(500, "OSError")
+                        logging.error("You probably didn't use 'sh ./script.sh'.")
+                        logging.error(err)
+                        if 'callback_url' in json_params:
+                            # Make a callback to Docker Hub
+                            data = {'state': 'failure',
+                                    'description': str(err)}
+                            headers = {'Content-type': 'application/json',
+                                       'Accept': 'text/plain'}
+                            requests.post(json_params['callback_url'],
+                                          data=json.dumps(data),
+                                          headers=headers)
+
         else:
             self.send_response(401, "Not authorized")
         self.end_headers()
@@ -95,6 +147,20 @@ def get_parser():
                         default=8555,
                         metavar="PORT",
                         help="port where it listens")
+    parser.add_argument("--event","-e",
+                        dest="event",
+                        default="Pipeline Hook",
+                        help="the name of the hook event")
+    parser.add_argument("--job-name","-j",
+                        dest="job",
+                        default="staging",
+                        help="the job name listed in the builds-section")
+    parser.add_argument("--on-success","-s",
+                        dest="on_success",
+                        action="store_true",
+                        default=True,
+                        help="when to trigger the command --cmd")
+    
     return parser
 
 

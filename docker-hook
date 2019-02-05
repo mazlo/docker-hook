@@ -68,31 +68,50 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Check if the secret URL was called
         token = args.token or os.environ.get("DOCKER_AUTH_TOKEN")
         if token == self.path[1:]:
-            logging.info("Start executing '%s'" % args.cmd)
-            try:
-                Popen(args.cmd, env=env).wait()
-                self.send_response(200, "OK")
-                if 'callback_url' in json_params:
-                    # Make a callback to Docker Hub
-                    data = {'state': 'success'}
-                    headers = {'Content-type': 'application/json',
-                               'Accept': 'text/plain'}
-                    requests.post(json_params['callback_url'],
-                                  data=json.dumps(data),
-                                  headers=headers)
-            except OSError as err:
-                self.send_response(500, "OSError")
-                logging.error("You probably didn't use 'sh ./script.sh'.")
-                logging.error(err)
-                if 'callback_url' in json_params:
-                    # Make a callback to Docker Hub
-                    data = {'state': 'failure',
-                            'description': str(err)}
-                    headers = {'Content-type': 'application/json',
-                               'Accept': 'text/plain'}
-                    requests.post(json_params['callback_url'],
-                                  data=json.dumps(data),
-                                  headers=headers)
+            logging.info( "Authorized" )
+            
+            job = jobs[0]
+            if not job or not 'status' in job:
+                logging.error( "Could not find status in job, %s" % args.job )
+                self.send_response( 500, "FAIL" )
+                self.end_headers()
+                return
+            else:
+                logging.info( "Checking conditions" )
+                
+                if args.on_success and job['status'] != "success":
+                    logging.warn( "'status: %s' received for job 'name: %s'. Waiting for 'status: success'" % ( job['status'], args.job ) )
+                    self.send_response( 200, "OK" )
+                    self.end_headers()
+                    return
+
+                elif args.on_success and job['status'] == "success":
+                    logging.info("Start executing '%s'" % args.cmd)
+                    try:
+                        Popen(args.cmd, env=env).wait()
+                        self.send_response(200, "OK")
+                        if 'callback_url' in json_params:
+                            # Make a callback to Docker Hub
+                            data = {'state': 'success'}
+                            headers = {'Content-type': 'application/json',
+                                       'Accept': 'text/plain'}
+                            requests.post(json_params['callback_url'],
+                                          data=json.dumps(data),
+                                          headers=headers)
+                    except OSError as err:
+                        self.send_response(500, "OSError")
+                        logging.error("You probably didn't use 'sh ./script.sh'.")
+                        logging.error(err)
+                        if 'callback_url' in json_params:
+                            # Make a callback to Docker Hub
+                            data = {'state': 'failure',
+                                    'description': str(err)}
+                            headers = {'Content-type': 'application/json',
+                                       'Accept': 'text/plain'}
+                            requests.post(json_params['callback_url'],
+                                          data=json.dumps(data),
+                                          headers=headers)
+
         else:
             self.send_response(401, "Not authorized")
         self.end_headers()

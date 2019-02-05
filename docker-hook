@@ -35,8 +35,35 @@ class RequestHandler(BaseHTTPRequestHandler):
         
         if len(json_payload) > 0:
             json_params = json.loads(json_payload)
-            env.update(('REPOSITORY_' + var.upper(), str(val))
-                       for var, val in json_params['repository'].items())
+            #env.update(('REPOSITORY_' + var.upper(), str(val))
+            #           for var, val in json_params['repository'].items())
+
+        # TODO ZL add destinction for ci-engines. this here is specific
+        if not self.headers.getheader( 'X-Gitlab-Event', None ):
+            logging.error( "Missing event type X-Gitlab-Event" )
+            self.send_response( 500, "FAIL" )
+            self.end_headers()
+            return
+
+        if not args.event == self.headers.getheader( 'X-Gitlab-Event', None ):
+           logging.error( "Wrong event type given, %s" % json_params['X-Gitlab-Event'] )
+           self.send_response( 500, "FAIL" )
+           self.end_headers()
+           return
+
+        if not 'builds' in json_params:
+            logging.error( "No 'builds' property in json payload" )
+            self.send_response( 500, "FAIL" )
+            self.end_headers()
+            return
+
+        jobs = json_params['builds']
+        jobs = filter( lambda job: 'name' in job and job['name'] == args.job, jobs )
+        if len( jobs ) == 0:
+            logging.error( "Could not find requested job, %s" % args.job )
+            self.send_response( 500, "FAIL" )
+            self.end_headers()
+            return
 
         # Check if the secret URL was called
         token = args.token or os.environ.get("DOCKER_AUTH_TOKEN")

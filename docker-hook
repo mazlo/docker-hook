@@ -41,14 +41,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         # TODO ZL add destinction for ci-engines. this here is specific
         # request header X-Gitlab-Event must be given
         if not self.headers.getheader( 'X-Gitlab-Event', None ):
-            logging.error( "Missing event type X-Gitlab-Event" )
+            logging.error( "Missing event type X-Gitlab-Event in request header" )
             self.send_response( 500, "FAIL" )
             self.end_headers()
             return
 
         # request header value for X-Gitlab-Event must be the one we need, --event
         if not args.event == self.headers.getheader( 'X-Gitlab-Event', None ):
-           logging.error( "Wrong event type given, %s" % json_params['X-Gitlab-Event'] )
+           logging.error( "Wrong event type given in request header, %s required" % args.event )
            self.send_response( 500, "FAIL" )
            self.end_headers()
            return
@@ -64,7 +64,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         jobs = json_params['builds']
         jobs = filter( lambda job: 'name' in job and job['name'] == args.job, jobs )
         if len( jobs ) == 0:
-            logging.error( "Could not find requested job, %s" % args.job )
+            logging.error( "Could not find requested job '%s'" % args.job )
             self.send_response( 500, "FAIL" )
             self.end_headers()
             return
@@ -77,7 +77,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             job = jobs[0]
             # there must be a status: "..." field in the job
             if not job or not 'status' in job:
-                logging.error( "Could not find status in job, %s" % args.job )
+                logging.error( "Could not find 'status'-property in job '%s'" % args.job )
                 self.send_response( 500, "FAIL" )
                 self.end_headers()
                 return
